@@ -1,0 +1,38 @@
+name: Notion to X
+
+on:
+  schedule:
+    # 30分ごとに「確認中」の下書きを探して投稿する
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "試し実行(投稿せず、文面だけ表示する)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: notion-post
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python post_from_notion.py
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
