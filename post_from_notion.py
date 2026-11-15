@@ -168,6 +168,16 @@ def build_x_client():
 def main() -> int:
     dry_run = os.environ.get("DRY_RUN", "") not in ("", "0", "false")
     database_id = os.environ.get("NOTION_DATABASE_ID") or DEFAULT_DATABASE_ID
+    needed = ["NOTION_TOKEN"]
+    if not dry_run:
+        needed += ["X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_TOKEN_SECRET"]
+    missing = [name for name in needed if not os.environ.get(name)]
+    if missing:
+        # 鍵の登録前は、失敗の通知を出し続けないよう静かに終わる
+        print(f"[SETUP] まだ登録されていない鍵があります: {', '.join(missing)}")
+        print("[SETUP] GitHub の Settings → Secrets and variables → Actions に登録してください")
+        return 0
+
     notion = Notion(os.environ["NOTION_TOKEN"])
 
     pages = notion.ready_pages(database_id)
