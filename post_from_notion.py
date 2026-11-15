@@ -8,6 +8,10 @@
 - 末尾の「(128字)」のような字数メモは投稿しない
 - 連続投稿は、区切り線(---)で1本ずつに分ける
 
+投稿するのは1回の実行につき1件だけ。「作成日」(投稿する予定の日)が
+今日(日本時間)以前のものから、日付の古い順に選ぶ。まとめて「確認中」に
+しておいても、1日1件ずつ出ていく。
+
 DRY_RUN=1 を付けると、投稿もNotionの更新もせず、投稿予定の文面だけ表示する。
 """
 
@@ -15,6 +19,8 @@ import os
 import re
 import sys
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -29,6 +35,9 @@ FORMAT_PROP = "形式"
 POSTABLE_FORMATS = {"短文投稿", "連続投稿"}
 LINK_PROP = "投稿のリンク"
 TITLE_PROP = "題名"
+DATE_PROP = "作成日"
+JST = ZoneInfo("Asia/Tokyo")
+MAX_PAGES_PER_RUN = 1
 
 X_MAX_WEIGHT = 280  # 全角は1字で2と数えるので、全角140字にあたる
 SLEEP_BETWEEN_POSTS_SEC = 2
@@ -154,6 +163,18 @@ def page_format(page: dict) -> str:
     return select["name"] if select else ""
 
 
+def page_date(page: dict) -> str:
+    """投稿する予定の日(YYYY-MM-DD)。空欄なら空文字。"""
+    date = page["properties"].get(DATE_PROP, {}).get("date")
+    return (date or {}).get("start", "")[:10]
+
+
+def due_pages(pages: list[dict], today: str) -> list[dict]:
+    """予定日が今日以前(または空欄)のものを、日付の古い順に並べる。"""
+    due = [p for p in pages if page_date(p) <= today]
+    return sorted(due, key=page_date)
+
+
 def build_x_client():
     import tweepy
 
@@ -180,15 +201,21 @@ def main() -> int:
 
     notion = Notion(os.environ["NOTION_TOKEN"])
 
-    pages = notion.ready_pages(database_id)
+    today = datetime.now(JST).strftime("%Y-%m-%d")
+    ready = notion.ready_pages(database_id)
+    pages = due_pages(ready, today)
+    print(f"[INFO] 今日は {today}。「確認中」{len(ready)}件のうち、予定日が来ているもの {len(pages)}件")
     if not pages:
-        print("[DONE] 「確認中」の下書きはありません")
+        print("[DONE] 今日投稿する下書きはありません")
         return 0
 
     x_client = None if dry_run else build_x_client()
     posted = skipped = failed = 0
 
     for page in pages:
+        if posted >= MAX_PAGES_PER_RUN:
+            print(f"[WAIT] {page_title(page)}: 1回に1件までなので、次の回に投稿します")
+            continue
         title = page_title(page)
         fmt = page_format(page)
         if fmt not in POSTABLE_FORMATS:
